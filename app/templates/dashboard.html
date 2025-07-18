@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<h2>Welcome, {{ user.username }}!</h2>
+<p>Welcome to your dashboard. Ready to manage expenses?</p>
+<a class="btn btn-success" href="{{ url_for('main.add_expense') }}">Add Expense</a>
+<a class="btn btn-outline-secondary" href="{{ url_for('main.view_expenses') }}">View Expenses</a>
+{% endblock %}
+   
