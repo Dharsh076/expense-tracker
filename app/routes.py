@@ -1,14 +1,16 @@
 from flask import Blueprint, render_template, redirect, url_for, flash, request
 from app import db
-from app.models import User
 from app.forms import RegisterForm, LoginForm
 from flask_login import login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from app.forms import AddExpenseForm
-from app.models import Expense
 from datetime import date
 from flask import session
 from app import csrf
+import csv
+from io import StringIO
+from flask import make_response
+from app.models import User, Expense, Income
 
 
 
@@ -90,44 +92,74 @@ def add_expense():
 @main.route('/expenses', methods=['GET', 'POST'])
 @login_required
 def view_expenses():
+    # ── filters from the query‑string ───────────────────────────
     category_filter = request.args.get('category')
-    start_date = request.args.get('start_date')
-    end_date = request.args.get('end_date')
-    show_chart = request.args.get('show_chart')
-    income = request.args.get('income', type=float)
+    start_date      = request.args.get('start_date')
+    end_date        = request.args.get('end_date')
+    show_chart      = request.args.get('show_chart')
 
-    if income is not None:
-        session['income'] = income
+    # ── optional income input from the query‑string ─────────────
+    income_input = request.args.get('income', type=float)
+    if income_input is not None:
+        # upsert the user’s income in the DB
+        existing = Income.query.filter_by(user_id=current_user.id).first()
+        if existing:
+            existing.amount = income_input
+        else:
+            db.session.add(Income(amount=income_input, user_id=current_user.id))
+        db.session.commit()
 
-    expenses_query = Expense.query.filter_by(user_id=current_user.id)
+    # ── fetch the stored income (default 0) ─────────────────────
+    income_obj = Income.query.filter_by(user_id=current_user.id).first()
+    income     = income_obj.amount if income_obj else 0
 
+    # ── build the expense query with filters ────────────────────
+    expenses_q = Expense.query.filter_by(user_id=current_user.id)
     if category_filter:
-        expenses_query = expenses_query.filter_by(category=category_filter)
+        expenses_q = expenses_q.filter_by(category=category_filter)
     if start_date:
-        expenses_query = expenses_query.filter(Expense.date >= start_date)
+        expenses_q = expenses_q.filter(Expense.date >= start_date)
     if end_date:
-        expenses_query = expenses_query.filter(Expense.date <= end_date)
+        expenses_q = expenses_q.filter(Expense.date <= end_date)
 
-    expenses = expenses_query.order_by(Expense.date.desc()).all()
-    total = sum(e.amount for e in expenses)
-    income = session.get('income', 0)
+    page = request.args.get('page', 1, type=int)
+    per_page = 5
+
+    expenses_pagination = expenses_q.order_by(Expense.date.desc()).paginate(page=page, per_page=per_page)
+    expenses = expenses_pagination.items
+    total    = sum(e.amount for e in expenses)
     remaining = income - total
 
+    # ── category totals for the pie‑chart ───────────────────────
     category_data = {}
     if show_chart:
+        total_expense = 0
         for e in expenses:
             category_data[e.category] = category_data.get(e.category, 0) + e.amount
+            total_expense += e.amount
 
+        income_obj = Income.query.filter_by(user_id=current_user.id).first()
+        income = income_obj.amount if income_obj else 0
+
+        income_remaining = max(0, income - total_expense)
+        category_data = {'Remaining Income': income_remaining, **category_data}
+
+
+
+    # ── render ──────────────────────────────────────────────────
     return render_template('view_expenses.html',
-                           expenses=expenses,
-                           total=total,
-                           category_data=category_data,
-                           show_chart=show_chart,
-                           category_filter=category_filter,
-                           start_date=start_date,
-                           end_date=end_date,
-                           income=income,
-                           remaining=remaining)
+        expenses=expenses,
+        pagination=expenses_pagination,
+        total=total,
+        category_data=category_data,
+        show_chart=show_chart,
+        category_filter=category_filter,
+        start_date=start_date,
+        end_date=end_date,
+        income=income,
+        remaining=remaining
+    )
+
 
 @main.route('/delete/<int:expense_id>', methods=['POST'])
 @csrf.exempt  # ✅ This tells Flask to skip CSRF check for this route
@@ -152,4 +184,50 @@ def test_csrf():
         return redirect(url_for('main.test_csrf'))
     return render_template('test_csrf.html')
 
+
+
+@main.route('/export')
+@login_required
+def export_expenses():
+    import csv
+    from io import StringIO
+    from flask import make_response
+
+    category_filter = request.args.get('category')
+    start_date = request.args.get('start_date')
+    end_date = request.args.get('end_date')
+
+    expenses_query = Expense.query.filter_by(user_id=current_user.id)
+    if category_filter:
+        expenses_query = expenses_query.filter_by(category=category_filter)
+    if start_date:
+        expenses_query = expenses_query.filter(Expense.date >= start_date)
+    if end_date:
+        expenses_query = expenses_query.filter(Expense.date <= end_date)
+
+    expenses = expenses_query.order_by(Expense.date.desc()).all()
+    total = sum(e.amount for e in expenses)
+
+    income_obj = Income.query.filter_by(user_id=current_user.id).first()
+    income = income_obj.amount if income_obj else 0
+    remaining = income - total
+
+    # Generate CSV
+    si = StringIO()
+    writer = csv.writer(si)
+
+    # Header summary
+    writer.writerow(['Income:', income])
+    writer.writerow(['Remaining:', remaining])
+    writer.writerow([])
+
+    # Expense table
+    writer.writerow(["Date", "Amount ($)", "Category", "Description"])
+    for e in expenses:
+        writer.writerow([e.date.strftime('%Y-%m-%d'), e.amount, e.category, e.description or ""])
+
+    output = make_response(si.getvalue())
+    output.headers["Content-Disposition"] = "attachment; filename=expenses.csv"
+    output.headers["Content-type"] = "text/csv"
+    return output
 

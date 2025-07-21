@@ -27,6 +27,16 @@
         <button class="btn btn-outline-primary w-100" type="submit" name="show_chart" value="true">Generate Chart</button>
     </div>
     <div class="col-md-2">
+        <a class="btn btn-outline-secondary w-100"
+            href="{{ url_for('main.export_expenses',
+                            category=category_filter,
+                            start_date=start_date,
+                            end_date=end_date) }}">
+            Export to CSV
+        </a>
+    </div>
+
+    <div class="col-md-2">
         <a href="{{ url_for('main.add_expense') }}" class="btn btn-success w-100">Add Expense</a>
     </div>
 </form>
@@ -40,42 +50,48 @@
 
 <!-- Chart -->
 {% if show_chart %}
-<canvas id="categoryChart" width="400" height="200" class="mb-4"></canvas>
+<div style="width: 300px; height: 300px; margin: auto;">
+  <canvas id="categoryChart"></canvas>
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
-    document.addEventListener("DOMContentLoaded", function () {
-        const ctx = document.getElementById('categoryChart').getContext('2d');
-        const chart = new Chart(ctx, {
-            type: 'pie',
-            data: {
-                labels: {{ category_data.keys()|list|tojson }},
-                datasets: [{
-                    label: 'Spending by Category',
-                    data: {{ category_data.values()|list|tojson }},
-                    backgroundColor: [
-                        'rgba(255, 99, 132, 0.6)',
-                        'rgba(54, 162, 235, 0.6)',
-                        'rgba(255, 206, 86, 0.6)',
-                        'rgba(75, 192, 192, 0.6)',
-                        'rgba(153, 102, 255, 0.6)'
-                    ],
-                    borderColor: '#fff',
-                    borderWidth: 1
-                }]
-            },
-            options: {
-                responsive: true,
-                plugins: {
-                    legend: {
-                        position: 'right'
-                    }
+document.addEventListener("DOMContentLoaded", function () {
+    const ctx = document.getElementById('categoryChart').getContext('2d');
+    const chart = new Chart(ctx, {
+        type: 'pie',
+        data: {
+            labels: {{ category_data.keys()|list|tojson }},
+            datasets: [{
+                label: 'Spending + Income',
+                data: {{ category_data.values()|list|tojson }},
+                backgroundColor: [
+                    'rgba(0, 200, 83, 0.6)',
+                    'rgba(255, 99, 132, 0.6)',
+                    'rgba(54, 162, 235, 0.6)',
+                    'rgba(255, 206, 86, 0.6)',
+                    'rgba(75, 192, 192, 0.6)',
+                    'rgba(153, 102, 255, 0.6)'
+                ],
+                borderColor: '#fff',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            maintainAspectRatio: false,
+            responsive: true,
+            plugins: {
+                legend: {
+                    position: 'right'
                 }
             }
-        });
+        }
     });
+});
 </script>
+
 {% endif %}
+
 
 <!-- Table -->
 {% if expenses %}
@@ -101,13 +117,46 @@
                         {{ csrf_token() }}
                     </div>
                     <button class="btn btn-sm btn-danger" onclick="return confirm('Delete this expense?');">Delete</button>
+                    
                 </form>
-</td>
+            </td>
 
         </tr>
         {% endfor %}
     </tbody>
 </table>
+<nav aria-label="Expense Pagination">
+  <ul class="pagination justify-content-center">
+    {% if pagination.has_prev %}
+      <li class="page-item">
+        <a class="page-link" href="{{ url_for('main.view_expenses', 
+                                               page=pagination.prev_num,
+                                               category=category_filter,
+                                               start_date=start_date,
+                                               end_date=end_date,
+                                               show_chart=show_chart) }}">Previous</a>
+      </li>
+    {% else %}
+      <li class="page-item disabled"><span class="page-link">Previous</span></li>
+    {% endif %}
+
+    <li class="page-item active"><span class="page-link">{{ pagination.page }}</span></li>
+
+    {% if pagination.has_next %}
+      <li class="page-item">
+        <a class="page-link" href="{{ url_for('main.view_expenses', 
+                                               page=pagination.next_num,
+                                               category=category_filter,
+                                               start_date=start_date,
+                                               end_date=end_date,
+                                               show_chart=show_chart) }}">Next</a>
+      </li>
+    {% else %}
+      <li class="page-item disabled"><span class="page-link">Next</span></li>
+    {% endif %}
+  </ul>
+</nav>
+
 {% else %}
 <p>No expenses found.</p>
 {% endif %}
