@@ -2,9 +2,11 @@ services:
   - type: web
     name: expense-tracker
     runtime: python
-    buildCommand: ""
-    startCommand: "gunicorn run:app"
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "gunicorn 'app:create_app()'"
     envVars:
       - key: FLASK_ENV
         value: production
+      - key: PYTHON_VERSION
+        value: 3.10
     plan: free
