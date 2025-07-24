@@ -13,12 +13,16 @@ def create_app():
     app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///yourdb.sqlite3'
 
     db.init_app(app)
+    login_manager.init_app(app)
+    csrf.init_app(app)
 
+    # Import models and create tables
     with app.app_context():
         from . import models
         db.create_all()
 
-    from .routes import auth
-    app.register_blueprint(auth)
+    # Register blueprints
+    from .routes import main
+    app.register_blueprint(main)
 
     return app
