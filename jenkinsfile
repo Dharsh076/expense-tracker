@@ -1,0 +1,56 @@
+pipeline {
+  agent any
+
+  environment {
+    IMAGE_NAME = "your-dockerhub-username/expense-tracker"
+    IMAGE_TAG  = "${env.BUILD_NUMBER}"
+    DOCKERHUB_CREDENTIALS = "dockerhub-creds"   // matches the ID in Jenkins creds
+  }
+
+  stages {
+    stage('Checkout') {
+      steps {
+        checkout scm
+      }
+    }
+
+    stage('Unit Tests') {
+      steps {
+        sh 'pip3 install -r requirements.txt'
+        sh 'pytest'
+      }
+    }
+
+    stage('Build Docker Image') {
+      steps {
+        sh "docker build -t ${IMAGE_NAME}:${IMAGE_TAG} -t ${IMAGE_NAME}:latest ."
+      }
+    }
+
+    stage('Push Image') {
+      steps {
+        withCredentials([usernamePassword(credentialsId: "${DOCKERHUB_CREDENTIALS}", usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+          sh 'echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin'
+          sh "docker push ${IMAGE_NAME}:${IMAGE_TAG}"
+          sh "docker push ${IMAGE_NAME}:latest"
+        }
+      }
+    }
+
+    stage('Deploy (local)') {
+      when { branch 'main' }
+      steps {
+        sh '''
+          docker rm -f expense-tracker || true
+          docker pull ${IMAGE_NAME}:latest
+          docker run -d --name expense-tracker \
+            -p 5000:5000 \
+            -e SECRET_KEY=dev-secret \
+            -e DATABASE_URL=sqlite:////data/expense.db \
+            -v expense_data:/data \
+            ${IMAGE_NAME}:latest
+        '''
+      }
+    }
+  }
+}

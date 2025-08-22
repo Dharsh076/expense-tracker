@@ -12,6 +12,9 @@ from io import StringIO
 from flask import make_response
 from app.models import User, Expense, Income
 from flask_login import LoginManager
+from flask import Blueprint, jsonify
+
+
 
 
 
@@ -162,6 +165,10 @@ def view_expenses():
         income=income,
         remaining=remaining
     )
+
+@main.route("/health")
+def health():
+    return jsonify(status="ok"), 200
 
 
 @main.route('/delete/<int:expense_id>', methods=['POST'])
