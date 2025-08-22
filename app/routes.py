@@ -11,6 +11,7 @@ import csv
 from io import StringIO
 from flask import make_response
 from app.models import User, Expense, Income
+from flask_login import LoginManager
 
 
 
@@ -41,6 +42,8 @@ def register():
         return redirect(url_for('main.login'))
     
     return render_template('register.html', form=form)
+
+login_manager = LoginManager()
 
 @main.route('/login', methods=['GET', 'POST'])
 def login():
