@@ -2,4 +2,15 @@ services:
   - type: web
     name: expense-tracker
     env: docker
-    plan: free
+    dockerfilePath: ./Dockerfile
+    autoDeploy: true
+    healthCheckPath: /health
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        value: sqlite:////data/expense.db
+    disk:
+      name: data
+      mountPath: /data
+      sizeGB: 1
