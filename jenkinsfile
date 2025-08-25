@@ -37,12 +37,24 @@ pipeline {
     stage('Unit Tests') {
       steps {
         sh '''
+          set -e
           docker run --rm \
             -v "$PWD":/workspace -w /workspace \
-            python:3.11 bash -lc "
-              python -m pip install --no-cache-dir -r requirements.txt &&
+            python:3.11 bash -lc '
+              set -e
+              python -m pip install --upgrade pip
+              if [ -f requirements.txt ]; then
+                echo "Using requirements.txt at repo root"
+                python -m pip install --no-cache-dir -r requirements.txt
+              elif [ -f app/requirements.txt ]; then
+                echo "Using app/requirements.txt"
+                python -m pip install --no-cache-dir -r app/requirements.txt
+              else
+                echo "No requirements file found; installing pytest only"
+                python -m pip install --no-cache-dir pytest
+              fi
               python -m pytest -q
-            "
+            '
         '''
       }
     }
