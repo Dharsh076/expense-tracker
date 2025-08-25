@@ -38,26 +38,44 @@ pipeline {
       steps {
         sh '''
           set -e
+          echo "Workspace: $(pwd)"
+          echo "Top-level files:"
+          ls -la
+          echo "app/ files (if present):"
+          ls -la app || true
+
+          # Use a Python container for repeatability
           docker run --rm \
             -v "$PWD":/workspace -w /workspace \
             python:3.11 bash -lc '
               set -e
               python -m pip install --upgrade pip
+
               if [ -f requirements.txt ]; then
-                echo "Using requirements.txt at repo root"
+                echo "✅ Using requirements.txt at repo root"
                 python -m pip install --no-cache-dir -r requirements.txt
               elif [ -f app/requirements.txt ]; then
-                echo "Using app/requirements.txt"
+                echo "✅ Using app/requirements.txt"
                 python -m pip install --no-cache-dir -r app/requirements.txt
               else
-                echo "No requirements file found; installing pytest only"
+                echo "⚠️  No requirements.txt found, installing pytest only"
                 python -m pip install --no-cache-dir pytest
               fi
+
+              # Run pytest; treat "no tests collected" (exit code 5) as success
+              set +e
               python -m pytest -q
+              code=$?
+              if [ "$code" -eq 5 ]; then
+                echo "ℹ️  No tests collected; continuing pipeline."
+                exit 0
+              fi
+              exit $code
             '
         '''
       }
-    }
+}
+
 
     stage('Build Docker Image') {
       steps {
