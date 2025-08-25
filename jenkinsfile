@@ -36,10 +36,14 @@ pipeline {
 
     stage('Unit Tests') {
       steps {
-        sh 'python3 --version || true'
-        sh 'python3 -m pip --version || true'
-        sh 'python3 -m pip install -r requirements.txt'
-        sh 'python3 -m pytest -q'
+        sh '''
+          docker run --rm \
+            -v "$PWD":/workspace -w /workspace \
+            python:3.11 bash -lc "
+              python -m pip install --no-cache-dir -r requirements.txt &&
+              python -m pytest -q
+            "
+        '''
       }
     }
 
