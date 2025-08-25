@@ -7,7 +7,7 @@ pipeline {
     IMAGE_TAG             = "${env.BUILD_NUMBER}"
 
     // TODO 2: set Jenkins credential IDs
-    DOCKERHUB_CREDENTIALS = "dockerhub-creds"          // username/password
+    DOCKERHUB_CREDENTIALS = "dharsh076/Vasusasikala27"          // username/password
     RENDER_DEPLOY_HOOK    = credentials('render-deploy-hook') // Secret Text = Render Deploy Hook URL
 
     // TODO 3: set your live Render URL (no trailing slash)
