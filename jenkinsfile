@@ -3,7 +3,7 @@ pipeline {
 
   environment {
     // TODO 1: set your Docker Hub repo
-    IMAGE_NAME            = "your-dockerhub-username/expense-tracker"
+    IMAGE_NAME            = "dharsh076/expense-tracker"
     IMAGE_TAG             = "${env.BUILD_NUMBER}"
 
     // TODO 2: set Jenkins credential IDs
