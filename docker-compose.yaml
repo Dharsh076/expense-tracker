@@ -1,0 +1,16 @@
+version: "3.8"
+services:
+  web:
+    build: .
+    ports:
+      - "5000:5000"
+    env_file:
+      - .env
+    environment:
+      # Fallbacks if .env not present
+      SECRET_KEY: ${SECRET_KEY:-dev-secret}
+      DATABASE_URL: ${DATABASE_URL:-sqlite:////data/expense.db}
+    volumes:
+      - expense_data:/data
+volumes:
+  expense_data:

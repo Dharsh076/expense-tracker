@@ -2,20 +2,42 @@ pipeline {
   agent any
 
   environment {
-    IMAGE_NAME = "your-dockerhub-username/expense-tracker"
-    IMAGE_TAG  = "${env.BUILD_NUMBER}"
-    DOCKERHUB_CREDENTIALS = "dockerhub-creds"   // matches the ID in Jenkins creds
+    // TODO 1: set your Docker Hub repo
+    IMAGE_NAME            = "your-dockerhub-username/expense-tracker"
+    IMAGE_TAG             = "${env.BUILD_NUMBER}"
+
+    // TODO 2: set Jenkins credential IDs
+    DOCKERHUB_CREDENTIALS = "dockerhub-creds"          // username/password
+    RENDER_DEPLOY_HOOK    = credentials('render-deploy-hook') // Secret Text = Render Deploy Hook URL
+
+    // TODO 3: set your live Render URL (no trailing slash)
+    RENDER_SERVICE_URL    = "https://expense-tracker-1-hj0i.onrender.com"
+
+    // Optional: if you prefer to pin a repo URL here, keep GIT_REPO_URL
+    GIT_REPO_URL          = "https://github.com/Dharsh076/expense-tracker.git"
+  }
+
+  options {
+    timestamps()
+    ansiColor('xterm')
+    buildDiscarder(logRotator(numToKeepStr: '25'))
   }
 
   stages {
     stage('Checkout') {
       steps {
-        checkout scm
+        // If the job is "Pipeline script from SCM", you can use: checkout scm
+        checkout([$class: 'GitSCM',
+          branches: [[name: '*/main']],
+          userRemoteConfigs: [[url: "${GIT_REPO_URL}"]]
+        ])
       }
     }
 
     stage('Unit Tests') {
       steps {
+        sh 'python3 --version || true'
+        sh 'pip3 --version || true'
         sh 'pip3 install -r requirements.txt'
         sh 'pytest'
       }
@@ -37,20 +59,38 @@ pipeline {
       }
     }
 
-    stage('Deploy (local)') {
+    // 🔽 NEW: Trigger Render deployment via deploy hook
+    stage('Trigger Render Deploy') {
+      when { branch 'main' }
+      steps {
+        sh 'curl -fsS -X POST "$RENDER_DEPLOY_HOOK" > /dev/null'
+        echo 'Render deploy triggered.'
+      }
+    }
+
+    // 🔽 NEW: Wait for the app to become healthy
+    stage('Wait for Health') {
       when { branch 'main' }
       steps {
         sh '''
-          docker rm -f expense-tracker || true
-          docker pull ${IMAGE_NAME}:latest
-          docker run -d --name expense-tracker \
-            -p 5000:5000 \
-            -e SECRET_KEY=dev-secret \
-            -e DATABASE_URL=sqlite:////data/expense.db \
-            -v expense_data:/data \
-            ${IMAGE_NAME}:latest
+          set -e
+          for i in $(seq 1 30); do
+            echo "Health check attempt $i..."
+            if curl -fsS "$RENDER_SERVICE_URL/health" > /dev/null; then
+              echo "Service is healthy ✅"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Service did not become healthy in time ❌"
+          exit 1
         '''
       }
     }
+  }
+
+  post {
+    success { echo '✅ CI/CD complete: built, pushed, and deployed to Render.' }
+    failure { echo '❌ Pipeline failed. Check logs above.' }
   }
 }
