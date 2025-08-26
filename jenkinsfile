@@ -104,20 +104,17 @@ pipeline {
 
     // 🔽 NEW: Trigger Render deployment via deploy hook
     stage('Trigger Render Deploy') {
-      when {
-        expression { return env.RENDER_DEPLOY_HOOK?.trim() }
-      }
+      when { expression { return env.RENDER_DEPLOY_HOOK?.trim() } }
       steps {
-        withCredentials([string(credentialsId: 'RENDER_DEPLOY_HOOK', variable: 'RENDER_DEPLOY_HOOK')]) {
-          sh '''
-            set -e
-            echo "Triggering Render deploy..."
-            curl -fsSL "$RENDER_DEPLOY_HOOK"
-            echo "Render deploy triggered."
-          '''
-        }
+        sh '''
+          set -e
+          echo "Triggering Render deploy..."
+          curl -fsSL "$RENDER_DEPLOY_HOOK"
+          echo "Render deploy triggered."
+        '''
       }
     }
+
 
     // 🔽 NEW: Wait for the app to become healthy
     stage('Wait for Health') {
