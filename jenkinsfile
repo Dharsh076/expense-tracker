@@ -2,12 +2,18 @@ pipeline {
   agent any
 
   environment {
+    // TODO 1: set your Docker Hub repo
     IMAGE_NAME            = "dharsh076/expense-tracker"
     IMAGE_TAG             = "${env.BUILD_NUMBER}"
 
-    DOCKERHUB_CREDENTIALS = "dockerhub-creds"
-    RENDER_DEPLOY_HOOK    = credentials('render-deploy-hook')
-    RENDER_HEALTH_URL     = credentials('https://expense-tracker-1-hj0i.onrender.com/health')  // Jenkins Secret Text
+    // TODO 2: set Jenkins credential IDs
+    DOCKERHUB_CREDENTIALS = "dockerhub-creds"          // username/password
+    RENDER_DEPLOY_HOOK    = credentials('render-deploy-hook') // Secret Text = Render Deploy Hook URL
+
+    // TODO 3: set your live Render URL (no trailing slash)
+    RENDER_SERVICE_URL    = "https://expense-tracker-1-hj0i.onrender.com"
+    RENDER_HEALTH_URL  = credentials('https://expense-tracker-1-hj0i.onrender.com/health')    // the health URL you just saved
+    // Optional: if you prefer to pin a repo URL here, keep GIT_REPO_URL
     GIT_REPO_URL          = "https://github.com/Dharsh076/expense-tracker.git"
   }
 
@@ -20,6 +26,7 @@ pipeline {
   stages {
     stage('Checkout') {
       steps {
+        // If the job is "Pipeline script from SCM", you can use: checkout scm
         checkout([$class: 'GitSCM',
           branches: [[name: '*/main']],
           userRemoteConfigs: [[url: "${GIT_REPO_URL}"]]
@@ -30,10 +37,45 @@ pipeline {
     stage('Unit Tests') {
       steps {
         sh '''
-          # same test commands as before...
+          set -e
+          echo "Workspace: $(pwd)"
+          echo "Top-level files:"
+          ls -la
+          echo "app/ files (if present):"
+          ls -la app || true
+
+          # Use a Python container for repeatability
+          docker run --rm \
+            -v "$PWD":/workspace -w /workspace \
+            python:3.11 bash -lc '
+              set -e
+              python -m pip install --upgrade pip
+
+              if [ -f requirements.txt ]; then
+                echo "✅ Using requirements.txt at repo root"
+                python -m pip install --no-cache-dir -r requirements.txt
+              elif [ -f app/requirements.txt ]; then
+                echo "✅ Using app/requirements.txt"
+                python -m pip install --no-cache-dir -r app/requirements.txt
+              else
+                echo "⚠️  No requirements.txt found, installing pytest only"
+                python -m pip install --no-cache-dir pytest
+              fi
+
+              # Run pytest; treat "no tests collected" (exit code 5) as success
+              set +e
+              python -m pytest -q
+              code=$?
+              if [ "$code" -eq 5 ]; then
+                echo "ℹ️  No tests collected; continuing pipeline."
+                exit 0
+              fi
+              exit $code
+            '
         '''
       }
-    } // <-- make sure this is here to close stage
+}
+
 
     stage('Build Docker Image') {
       steps {
@@ -44,49 +86,59 @@ pipeline {
     stage('Push Image') {
       steps {
         withCredentials([usernamePassword(credentialsId: 'dockerhub-creds',
-                                usernameVariable: 'DOCKER_USER',
-                                passwordVariable: 'DOCKER_TOKEN')]) {
+                                  usernameVariable: 'DOCKER_USER',
+                                  passwordVariable: 'DOCKER_TOKEN')]) 
+          {
+            sh '''
+              set -e
+              echo "$DOCKER_TOKEN" | docker login -u "$DOCKER_USER" --password-stdin
+              docker push ${IMAGE_NAME}:${IMAGE_TAG}
+              docker push ${IMAGE_NAME}:latest
+              docker logout || true
+            '''
+          }
+
+      }
+    }
+
+
+    // 🔽 NEW: Trigger Render deployment via deploy hook
+    stage('Trigger Render Deploy') {
+      when {
+        expression { return env.RENDER_DEPLOY_HOOK?.trim() }
+      }
+      steps {
+        withCredentials([string(credentialsId: 'RENDER_DEPLOY_HOOK', variable: 'RENDER_DEPLOY_HOOK')]) {
           sh '''
             set -e
-            echo "$DOCKER_TOKEN" | docker login -u "$DOCKER_USER" --password-stdin
-            docker push ${IMAGE_NAME}:${IMAGE_TAG}
-            docker push ${IMAGE_NAME}:latest
-            docker logout || true
+            echo "Triggering Render deploy..."
+            curl -fsSL "$RENDER_DEPLOY_HOOK"
+            echo "Render deploy triggered."
           '''
         }
       }
     }
 
-    stage('Trigger Render Deploy') {
-      when { expression { return env.RENDER_DEPLOY_HOOK?.trim() } }
-      steps {
-        sh '''
-          echo "Triggering Render deploy..."
-          curl -fsSL "$RENDER_DEPLOY_HOOK"
-        '''
-      }
-    }
-
+    // 🔽 NEW: Wait for the app to become healthy
     stage('Wait for Health') {
       when { expression { return env.RENDER_HEALTH_URL?.trim() } }
       steps {
         sh '''
-          echo "Checking health at: $RENDER_HEALTH_URL"
+          set -e
           for i in $(seq 1 60); do
             code=$(curl -s -o /dev/null -w "%{http_code}" "$RENDER_HEALTH_URL" || true)
             if [ "$code" = "200" ]; then
               echo "Service healthy ✅"
               exit 0
             fi
-            echo "Waiting for health... ($i/60) (got $code)"
+            echo "Waiting for health... ($i/60)"
             sleep 5
           done
+          echo "Service did not become healthy in time ❌"
           exit 1
         '''
       }
     }
-  }
-
   post {
     success { echo '✅ CI/CD complete: built, pushed, and deployed to Render.' }
     failure { echo '❌ Pipeline failed. Check logs above.' }
