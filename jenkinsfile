@@ -12,7 +12,7 @@ pipeline {
 
     // TODO 3: set your live Render URL (no trailing slash)
     RENDER_SERVICE_URL    = "https://expense-tracker-1-hj0i.onrender.com"
-
+    RENDER_HEALTH_URL  = credentials('https://expense-tracker-1-hj0i.onrender.com/health')    // the health URL you just saved
     // Optional: if you prefer to pin a repo URL here, keep GIT_REPO_URL
     GIT_REPO_URL          = "https://github.com/Dharsh076/expense-tracker.git"
   }
@@ -104,34 +104,41 @@ pipeline {
 
     // 🔽 NEW: Trigger Render deployment via deploy hook
     stage('Trigger Render Deploy') {
-      when { branch 'main' }
+      when {
+        expression { return env.RENDER_DEPLOY_HOOK?.trim() }
+      }
       steps {
-        sh 'curl -fsS -X POST "$RENDER_DEPLOY_HOOK" > /dev/null'
-        echo 'Render deploy triggered.'
+        withCredentials([string(credentialsId: 'RENDER_DEPLOY_HOOK', variable: 'RENDER_DEPLOY_HOOK')]) {
+          sh '''
+            set -e
+            echo "Triggering Render deploy..."
+            curl -fsSL "$RENDER_DEPLOY_HOOK"
+            echo "Render deploy triggered."
+          '''
+        }
       }
     }
 
     // 🔽 NEW: Wait for the app to become healthy
     stage('Wait for Health') {
-      when { branch 'main' }
+      when { expression { return env.RENDER_HEALTH_URL?.trim() } }
       steps {
         sh '''
           set -e
-          for i in $(seq 1 30); do
-            echo "Health check attempt $i..."
-            if curl -fsS "$RENDER_SERVICE_URL/health" > /dev/null; then
-              echo "Service is healthy ✅"
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" "$RENDER_HEALTH_URL" || true)
+            if [ "$code" = "200" ]; then
+              echo "Service healthy ✅"
               exit 0
             fi
-            sleep 10
+            echo "Waiting for health... ($i/60)"
+            sleep 5
           done
           echo "Service did not become healthy in time ❌"
           exit 1
         '''
       }
     }
-  }
-
   post {
     success { echo '✅ CI/CD complete: built, pushed, and deployed to Render.' }
     failure { echo '❌ Pipeline failed. Check logs above.' }
